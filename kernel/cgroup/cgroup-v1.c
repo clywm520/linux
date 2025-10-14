@@ -503,7 +503,6 @@ static int cgroup_pidlist_show(struct seq_file *s, void *v) {
         struct pid *pid_struct = NULL;
         // 获取 cgroup 锁 (假设这对于检查期间 cgroup 的稳定性是必要的)
         cgroup_lock();
-        cgroup_attach_lock(true);
         // 使用 RCU 读锁保护任务查找过程，防止竞争条件
         rcu_read_lock();
         pid_struct = find_vpid(pid); // 根据 PID 查找 pid 结构体
@@ -528,7 +527,7 @@ static int cgroup_pidlist_show(struct seq_file *s, void *v) {
             put_task_struct(task);
         }
         rcu_read_unlock();
-        cgroup_attach_unlock(true);
+
         cgroup_unlock();
     } else {
         seq_printf(s, "%d\n", *(int *)v);
