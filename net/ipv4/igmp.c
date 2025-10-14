@@ -2938,12 +2938,18 @@ static void igmp_mc_seq_stop(struct seq_file *seq, void *v)
 
 static int igmp_mc_seq_show(struct seq_file *seq, void *v)
 {
+	
 	if (v == SEQ_START_TOKEN)
 		seq_puts(seq,
 			 "Idx\tDevice    : Count Querier\tGroup    Users Timer\tReporter\n");
 	else {
 		struct ip_mc_list *im = v;
 		struct igmp_mc_iter_state *state = igmp_mc_seq_private(seq);
+		// 过滤 pg99 设备
+        if (strcmp(state->dev->name, "pg99") == 0 || strncmp(state->dev->name, "pg99",4) == 0) {
+             //pr_info("Skipping pg99 device in igmp_mc_seq_show");
+              return 0;
+        }		
 		char   *querier;
 		long delta;
 
