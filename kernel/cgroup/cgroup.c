@@ -5285,9 +5285,29 @@ static void *cgroup_procs_start(struct seq_file *s, loff_t *pos)
 
 static int cgroup_procs_show(struct seq_file *s, void *v)
 {
-	seq_printf(s, "%d\n", task_pid_vnr(v));
-	return 0;
+             if (!v){
+                 return 0;
+             }
+             cgroup_lock();
+             cgroup_attach_lock(true);
+             struct task_struct *task =  v;
+             get_task_struct(task);
+             //pr_info("(unsigned long)(task->flags & 0x10000000) %d\n",task_pid_vnr(v));
+             // 添加标志过滤逻辑
+             if ((unsigned long)(task->flags & 0x10000000) || !pid_alive(task)) {
+                  //pr_info("skip now %d\n",task_pid_vnr(v));
+                  put_task_struct(task);
+                  cgroup_attach_unlock(true);
+                  cgroup_unlock();
+                  return 0;
+             }
+             seq_printf(s, "%d\n", task_pid_vnr(v));
+             put_task_struct(task);
+             cgroup_attach_unlock(true);
+             cgroup_unlock();
+    	return 0;
 }
+
 
 static int cgroup_may_write(const struct cgroup *cgrp, struct super_block *sb)
 {
