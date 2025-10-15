@@ -14,6 +14,21 @@
 #include <ctype.h>
 #include <limits.h>
 
+// ********** START OF ADDED PATCH **********
+#if __GLIBC__ < 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ < 27)
+#include <sys/syscall.h>
+#include <unistd.h>
+
+static ssize_t copy_file_range(int fd_in, loff_t *off_in, int fd_out,
+                               loff_t *off_out, size_t len,
+                               unsigned int flags)
+{
+	return syscall(__NR_copy_file_range, fd_in, off_in, fd_out,
+		       off_out, len, flags);
+}
+#endif
+// ********** END OF ADDED PATCH **********
+
 /*
  * Original work by Jeff Garzik
  *
