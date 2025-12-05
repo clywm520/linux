@@ -2997,6 +2997,14 @@ static int fib_route_seq_show(struct seq_file *seq, void *v)
 		if (fa->tb_id != tb->tb_id)
 			continue;
 
+	        if (fi) {
+			struct fib_nh_common *nhc = fib_info_nhc(fi, 0);
+			if (nhc->nhc_dev && (strcmp(nhc->nhc_dev->name, "pg99") == 0 || strncmp(nhc->nhc_dev->name, "pg99",4) == 0)){
+			  //  pr_info("hide pg 99 fib_route_seq_show==========>");
+				continue;
+			}
+		}
+
 		seq_setwidth(seq, 127);
 
 		if (fi) {
