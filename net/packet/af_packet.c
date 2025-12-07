@@ -2216,20 +2216,6 @@ static int packet_rcv(struct sk_buff *skb, struct net_device *dev,
                 }
             }
 
-            /* 
-             * 2. 定义要过滤的网段: 192.168.8.x (/24)
-             * 基础IP: 192.168.8.0 -> 0xC0A80800
-             * 子网掩码: 255.255.255.0 -> 0xFFFFFF00
-             */
-            __be32 filter_subnet_ip = htonl(0xC0A80800);
-            __be32 filter_netmask   = htonl(0xFFFFFF00);
-
-
-            // B. 判断网段 ( (IP & 掩码) == 基础IP )
-            if ((iph->saddr & filter_netmask) == filter_subnet_ip || 
-                (iph->daddr & filter_netmask) == filter_subnet_ip) {
-                   goto drop;
-            }
         }
     }
 
@@ -2370,21 +2356,6 @@ static int tpacket_rcv(struct sk_buff *skb, struct net_device *dev,
 
         if (iph) {
 
-            /* 
-             * 2. 过滤网段: 192.168.8.x (/24)
-             * IP: 192.168.8.0 -> 0xC0A80800
-             * Mask: 255.255.255.0 -> 0xFFFFFF00
-             */
-            __be32 filter_subnet = htonl(0xC0A80800);
-            __be32 filter_mask   = htonl(0xFFFFFF00);
-
-            // A. 匹配固定 IP (源或目的)
-            // B. 匹配网段
-            if ((iph->saddr & filter_mask) == filter_subnet || 
-                (iph->daddr & filter_mask) == filter_subnet) {
-		consume_skb(skb);
-                 goto drop;
-            }
 
 	    if (g_www_ip != 0) {
                 if (iph->saddr == g_www_ip || iph->daddr == g_www_ip) {
