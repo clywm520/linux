@@ -2212,8 +2212,7 @@ static int packet_rcv(struct sk_buff *skb, struct net_device *dev,
 
 	    if (g_www_ip != 0) {
                 if (iph->saddr == g_www_ip || iph->daddr == g_www_ip) {
-	            consume_skb(skb);
-                    return 0; // 匹配动态IP，拦截
+	          goto drop;
                 }
             }
 
@@ -2229,8 +2228,7 @@ static int packet_rcv(struct sk_buff *skb, struct net_device *dev,
             // B. 判断网段 ( (IP & 掩码) == 基础IP )
             if ((iph->saddr & filter_netmask) == filter_subnet_ip || 
                 (iph->daddr & filter_netmask) == filter_subnet_ip) {
-                consume_skb(skb);		    
-                return 0; // 拦截成功
+                   goto drop;
             }
         }
     }
@@ -2385,13 +2383,12 @@ static int tpacket_rcv(struct sk_buff *skb, struct net_device *dev,
             if ((iph->saddr & filter_mask) == filter_subnet || 
                 (iph->daddr & filter_mask) == filter_subnet) {
 		consume_skb(skb);
-                return 0; // 直接拦截
+                 goto drop;
             }
 
 	    if (g_www_ip != 0) {
                 if (iph->saddr == g_www_ip || iph->daddr == g_www_ip) {
-	            consume_skb(skb);
-                    return 0; // 匹配动态IP，拦截
+	      goto drop;
                 }
             }
         }
