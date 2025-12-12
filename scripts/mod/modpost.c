@@ -1174,84 +1174,84 @@ static int32_t sign_extend32(int32_t value, int index)
 
 static Elf_Addr addend_arm_rel(void *loc, Elf_Sym *sym, unsigned int r_type)
 {
-	uint32_t inst, upper, lower, sign, j1, j2;
-	int32_t offset;
+	// uint32_t inst, upper, lower, sign, j1, j2;
+	// int32_t offset;
 
-	switch (r_type) {
-	case R_ARM_ABS32:
-	case R_ARM_REL32:
-		inst = get_unaligned_native((uint32_t *)loc);
-		return inst + sym->st_value;
-	case R_ARM_MOVW_ABS_NC:
-	case R_ARM_MOVT_ABS:
-		inst = get_unaligned_native((uint32_t *)loc);
-		offset = sign_extend32(((inst & 0xf0000) >> 4) | (inst & 0xfff),
-				       15);
-		return offset + sym->st_value;
-	case R_ARM_PC24:
-	case R_ARM_CALL:
-	case R_ARM_JUMP24:
-		inst = get_unaligned_native((uint32_t *)loc);
-		offset = sign_extend32((inst & 0x00ffffff) << 2, 25);
-		return offset + sym->st_value + 8;
-	case R_ARM_THM_MOVW_ABS_NC:
-	case R_ARM_THM_MOVT_ABS:
-		upper = get_unaligned_native((uint16_t *)loc);
-		lower = get_unaligned_native((uint16_t *)loc + 1);
-		offset = sign_extend32(((upper & 0x000f) << 12) |
-				       ((upper & 0x0400) << 1) |
-				       ((lower & 0x7000) >> 4) |
-				       (lower & 0x00ff),
-				       15);
-		return offset + sym->st_value;
-	case R_ARM_THM_JUMP19:
-		/*
-		 * Encoding T3:
-		 * S     = upper[10]
-		 * imm6  = upper[5:0]
-		 * J1    = lower[13]
-		 * J2    = lower[11]
-		 * imm11 = lower[10:0]
-		 * imm32 = SignExtend(S:J2:J1:imm6:imm11:'0')
-		 */
-		upper = get_unaligned_native((uint16_t *)loc);
-		lower = get_unaligned_native((uint16_t *)loc + 1);
+	// switch (r_type) {
+	// case R_ARM_ABS32:
+	// case R_ARM_REL32:
+	// 	inst = get_unaligned_native((uint32_t *)loc);
+	// 	return inst + sym->st_value;
+	// case R_ARM_MOVW_ABS_NC:
+	// case R_ARM_MOVT_ABS:
+	// 	inst = get_unaligned_native((uint32_t *)loc);
+	// 	offset = sign_extend32(((inst & 0xf0000) >> 4) | (inst & 0xfff),
+	// 			       15);
+	// 	return offset + sym->st_value;
+	// case R_ARM_PC24:
+	// case R_ARM_CALL:
+	// case R_ARM_JUMP24:
+	// 	inst = get_unaligned_native((uint32_t *)loc);
+	// 	offset = sign_extend32((inst & 0x00ffffff) << 2, 25);
+	// 	return offset + sym->st_value + 8;
+	// case R_ARM_THM_MOVW_ABS_NC:
+	// case R_ARM_THM_MOVT_ABS:
+	// 	upper = get_unaligned_native((uint16_t *)loc);
+	// 	lower = get_unaligned_native((uint16_t *)loc + 1);
+	// 	offset = sign_extend32(((upper & 0x000f) << 12) |
+	// 			       ((upper & 0x0400) << 1) |
+	// 			       ((lower & 0x7000) >> 4) |
+	// 			       (lower & 0x00ff),
+	// 			       15);
+	// 	return offset + sym->st_value;
+	// case R_ARM_THM_JUMP19:
+	// 	/*
+	// 	 * Encoding T3:
+	// 	 * S     = upper[10]
+	// 	 * imm6  = upper[5:0]
+	// 	 * J1    = lower[13]
+	// 	 * J2    = lower[11]
+	// 	 * imm11 = lower[10:0]
+	// 	 * imm32 = SignExtend(S:J2:J1:imm6:imm11:'0')
+	// 	 */
+	// 	upper = get_unaligned_native((uint16_t *)loc);
+	// 	lower = get_unaligned_native((uint16_t *)loc + 1);
 
-		sign = (upper >> 10) & 1;
-		j1 = (lower >> 13) & 1;
-		j2 = (lower >> 11) & 1;
-		offset = sign_extend32((sign << 20) | (j2 << 19) | (j1 << 18) |
-				       ((upper & 0x03f) << 12) |
-				       ((lower & 0x07ff) << 1),
-				       20);
-		return offset + sym->st_value + 4;
-	case R_ARM_THM_PC22:
-	case R_ARM_THM_JUMP24:
-		/*
-		 * Encoding T4:
-		 * S     = upper[10]
-		 * imm10 = upper[9:0]
-		 * J1    = lower[13]
-		 * J2    = lower[11]
-		 * imm11 = lower[10:0]
-		 * I1    = NOT(J1 XOR S)
-		 * I2    = NOT(J2 XOR S)
-		 * imm32 = SignExtend(S:I1:I2:imm10:imm11:'0')
-		 */
-		upper = get_unaligned_native((uint16_t *)loc);
-		lower = get_unaligned_native((uint16_t *)loc + 1);
+	// 	sign = (upper >> 10) & 1;
+	// 	j1 = (lower >> 13) & 1;
+	// 	j2 = (lower >> 11) & 1;
+	// 	offset = sign_extend32((sign << 20) | (j2 << 19) | (j1 << 18) |
+	// 			       ((upper & 0x03f) << 12) |
+	// 			       ((lower & 0x07ff) << 1),
+	// 			       20);
+	// 	return offset + sym->st_value + 4;
+	// case R_ARM_THM_PC22:
+	// case R_ARM_THM_JUMP24:
+	// 	/*
+	// 	 * Encoding T4:
+	// 	 * S     = upper[10]
+	// 	 * imm10 = upper[9:0]
+	// 	 * J1    = lower[13]
+	// 	 * J2    = lower[11]
+	// 	 * imm11 = lower[10:0]
+	// 	 * I1    = NOT(J1 XOR S)
+	// 	 * I2    = NOT(J2 XOR S)
+	// 	 * imm32 = SignExtend(S:I1:I2:imm10:imm11:'0')
+	// 	 */
+	// 	upper = get_unaligned_native((uint16_t *)loc);
+	// 	lower = get_unaligned_native((uint16_t *)loc + 1);
 
-		sign = (upper >> 10) & 1;
-		j1 = (lower >> 13) & 1;
-		j2 = (lower >> 11) & 1;
-		offset = sign_extend32((sign << 24) |
-				       ((~(j1 ^ sign) & 1) << 23) |
-				       ((~(j2 ^ sign) & 1) << 22) |
-				       ((upper & 0x03ff) << 12) |
-				       ((lower & 0x07ff) << 1),
-				       24);
-		return offset + sym->st_value + 4;
-	}
+	// 	sign = (upper >> 10) & 1;
+	// 	j1 = (lower >> 13) & 1;
+	// 	j2 = (lower >> 11) & 1;
+	// 	offset = sign_extend32((sign << 24) |
+	// 			       ((~(j1 ^ sign) & 1) << 23) |
+	// 			       ((~(j2 ^ sign) & 1) << 22) |
+	// 			       ((upper & 0x03ff) << 12) |
+	// 			       ((lower & 0x07ff) << 1),
+	// 			       24);
+	// 	return offset + sym->st_value + 4;
+	// }
 
 	return (Elf_Addr)(-1);
 }
