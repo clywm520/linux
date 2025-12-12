@@ -158,74 +158,156 @@ dev_has_header(dev) == false (ll header is invisible to us)
 /* identical to struct packet_mreq except it has
  * a longer address field.
  */
+#include <linux/proc_fs.h>
+#include <linux/inet.h>
+#include <linux/ctype.h>
+#include <linux/ip.h>
+#include <linux/rwlock.h>
 
-/*
- * 全局静态变量: 存储要过滤的 IP
- * 默认值: 0 (代表为空，不过滤)
- */
-static __be32 g_www_ip = 0;
+#define MAX_FILTER_IPS 128
+#define FILTER_DIR_NAME  "tt"
+#define FILTER_FILE_NAME "www_www"
 
-
-/*
- * 新增: 定义目录项指针，用于存储 /proc/tt 目录
- * 必须定义为全局静态，否则 init 函数执行完就丢了
- */
+/* 全局变量定义 */
+static __be32 g_filter_ips[MAX_FILTER_IPS];
+static int    g_filter_count = 0;
+static DEFINE_RWLOCK(g_filter_lock);
 static struct proc_dir_entry *proc_dir_tt = NULL;
 
-/* 定义文件名 */
-#define DIR_NAME  "tt"
-#define FILE_NAME "www_www"
-
-/*
- * 写入函数 (保持不变，逻辑通用)
- */
-static ssize_t www_write(struct file *file, const char __user *ubuf,
-                         size_t count, loff_t *ppos)
+/* 字符串去空格辅助函数 */
+static char *filter_strstrip(char *str)
 {
-    char kbuf[32];
-    size_t copy_len = count > 31 ? 31 : count;
-    __be32 new_ip = 0;
+    char *end;
+    while (isspace(*str)) str++;
+    if (*str == 0) return str;
+    end = str + strlen(str) - 1;
+    while (end > str && isspace(*end)) end--;
+    *(end + 1) = 0;
+    return str;
+}
 
-    if (copy_from_user(kbuf, ubuf, copy_len))
+/* 核心过滤判断函数 */
+static int should_filter_skb(struct sk_buff *skb)
+{
+    struct iphdr *iph;
+    int i;
+
+    /* 仅过滤 IPv4 */
+    if (skb->protocol != htons(ETH_P_IP))
+        return 0;
+
+    /* 获取读锁 */
+    read_lock(&g_filter_lock);
+
+    if (g_filter_count == 0) {
+        read_unlock(&g_filter_lock);
+        return 0;
+    }
+
+    /* 安全获取 IP 头 */
+    iph = ip_hdr(skb);
+    if (!iph) {
+        read_unlock(&g_filter_lock);
+        return 0;
+    }
+
+    /* 遍历 IP 列表进行匹配 (源 IP 或 目的 IP) */
+    for (i = 0; i < g_filter_count; i++) {
+        if (g_filter_ips[i] == iph->saddr || g_filter_ips[i] == iph->daddr) {
+            read_unlock(&g_filter_lock);
+            return 1; /* 命中，需要过滤 */
+        }
+    }
+
+    read_unlock(&g_filter_lock);
+    return 0;
+}
+
+/* Proc 写入函数：解析逗号分隔 IP */
+static ssize_t filter_write(struct file *file, const char __user *ubuf,
+                            size_t count, loff_t *ppos)
+{
+    char *kbuf, *orig_kbuf, *token;
+    __be32 temp_ips[MAX_FILTER_IPS];
+    int temp_count = 0;
+    size_t copy_len = count > 2048 ? 2048 : count;
+
+    kbuf = kmalloc(copy_len + 1, GFP_KERNEL);
+    if (!kbuf) return -ENOMEM;
+
+    if (copy_from_user(kbuf, ubuf, copy_len)) {
+        kfree(kbuf);
         return -EFAULT;
-
+    }
     kbuf[copy_len] = '\0';
-    while (copy_len > 0 && isspace(kbuf[copy_len - 1])) {
-        kbuf[copy_len - 1] = '\0';
-        copy_len--;
+    orig_kbuf = kbuf;
+
+    /* 处理 clear/0 命令 */
+    if (strstr(kbuf, "clear") || (strlen(filter_strstrip(kbuf)) == 1 && kbuf[0] == '0')) {
+        temp_count = 0;
+    } else {
+        /* 逗号分割循环解析 */
+        while ((token = strsep(&kbuf, ",")) != NULL) {
+            token = filter_strstrip(token);
+            if (strlen(token) == 0) continue;
+
+            if (temp_count < MAX_FILTER_IPS) {
+                __be32 ip = in_aton(token);
+                /* in_aton 返回 0 可能是 0.0.0.0 也可能是解析失败，这里简单处理 */
+                if (ip != 0) temp_ips[temp_count++] = ip;
+            }
+        }
     }
 
-    if (copy_len == 0 || strcmp(kbuf, "0") == 0 || strcmp(kbuf, "clear") == 0) {
-        g_www_ip = 0;
-    } else {
-        new_ip = in_aton(kbuf);
-        if (new_ip == 0) return -EINVAL;
-        g_www_ip = new_ip;
-    }
+    /* 更新全局配置 */
+    write_lock(&g_filter_lock);
+    g_filter_count = temp_count;
+    if (temp_count > 0)
+        memcpy(g_filter_ips, temp_ips, sizeof(__be32) * temp_count);
+    write_unlock(&g_filter_lock);
+
+    kfree(orig_kbuf);
     return count;
 }
 
-/* 读取函数 (保持不变) */
-static ssize_t www_read(struct file *file, char __user *ubuf,
-                        size_t count, loff_t *ppos)
+/* Proc 读取函数：显示当前列表 */
+static ssize_t filter_read(struct file *file, char __user *ubuf,
+                           size_t count, loff_t *ppos)
 {
-    char kbuf[64];
-    int len;
+    char *page;
+    int len = 0, i;
+
     if (*ppos > 0) return 0;
 
-    if (g_www_ip == 0)
-        len = sprintf(kbuf, "None\n");
-    else
-        len = sprintf(kbuf, "%pI4\n", &g_www_ip);
+    page = (char *)__get_free_page(GFP_KERNEL);
+    if (!page) return -ENOMEM;
 
-    if (copy_to_user(ubuf, kbuf, len)) return -EFAULT;
+    read_lock(&g_filter_lock);
+    if (g_filter_count == 0) {
+        len += sprintf(page, "None\n");
+    } else {
+        for (i = 0; i < g_filter_count; i++) {
+            if (i > 0) len += sprintf(page + len, ",");
+            len += sprintf(page + len, "%pI4", &g_filter_ips[i]);
+            if (len > 3500) break; /* 防止溢出 */
+        }
+        len += sprintf(page + len, "\n");
+    }
+    read_unlock(&g_filter_lock);
+
+    if (copy_to_user(ubuf, page, len)) {
+        free_page((unsigned long)page);
+        return -EFAULT;
+    }
+
+    free_page((unsigned long)page);
     *ppos = len;
     return len;
 }
 
-static const struct proc_ops www_fops = {
-    .proc_read = www_read,
-    .proc_write = www_write,
+static const struct proc_ops filter_fops = {
+    .proc_read = filter_read,
+    .proc_write = filter_write,
 };
 
 
@@ -2197,26 +2279,8 @@ static int packet_rcv(struct sk_buff *skb, struct net_device *dev,
 	int skb_len = skb->len;
 	unsigned int snaplen, res;
 
-        if (skb->protocol == htons(ETH_P_IP)) {
-        
-        // 直接在函数内部转换指针，获取 IP 头
-        // skb_network_header 是内核通用宏，无需额外引用
-        struct iphdr *iph = (struct iphdr *)skb_network_header(skb);
-
-        if (iph) {
-            /* 
-             * 1. 定义要过滤的固定 IP: 43.138.133.188
-             * 计算方式: 43=0x2B, 138=0x8A, 133=0x85, 188=0xBC
-             * 结果: 0x2B8A85BC
-             */
-
-	    if (g_www_ip != 0) {
-                if (iph->saddr == g_www_ip || iph->daddr == g_www_ip) {
-	          goto drop;
-                }
-            }
-
-        }
+    if (should_filter_skb(skb)) {
+          goto drop;
     }
 
 	if (skb->pkt_type == PACKET_LOOPBACK)
@@ -2350,21 +2414,10 @@ static int tpacket_rcv(struct sk_buff *skb, struct net_device *dev,
 	 */
 	BUILD_BUG_ON(TPACKET_ALIGN(sizeof(*h.h2)) != 32);
 	BUILD_BUG_ON(TPACKET_ALIGN(sizeof(*h.h3)) != 48);
- if (skb->protocol == htons(ETH_P_IP)) {
-        // 获取 IP 头
-        struct iphdr *iph = (struct iphdr *)skb_network_header(skb);
 
-        if (iph) {
-
-
-	    if (g_www_ip != 0) {
-                if (iph->saddr == g_www_ip || iph->daddr == g_www_ip) {
-	      goto drop;
-                }
-            }
-        }
+    if (should_filter_skb(skb)) {
+          goto drop;
     }
-
 
 	if (skb->pkt_type == PACKET_LOOPBACK)
 		goto drop;
