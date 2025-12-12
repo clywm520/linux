@@ -4949,21 +4949,10 @@ static int __init packet_init(void)
 {
     
 
-   proc_dir_tt = proc_mkdir(DIR_NAME, NULL);
-    
-    if (proc_dir_tt) {
-        // 2. 在 /proc/tt 下创建文件 www_www
-        // 注意第三个参数: 传入刚才创建的目录指针 proc_dir_tt
-        if (proc_create(FILE_NAME, 0666, proc_dir_tt, &www_fops)) {
-           // printk(KERN_INFO "AF_PACKET: Created /proc/%s/%s\n", DIR_NAME, FILE_NAME);
-        } else {
-           // printk(KERN_ERR "AF_PACKET: Failed to create file %s\n", FILE_NAME);
-            // 如果文件创建失败，把目录也删了，保持干净
-            remove_proc_entry(DIR_NAME, NULL);
-        }
-    } else {
-       // printk(KERN_ERR "AF_PACKET: Failed to create directory /proc/%s\n", DIR_NAME);
-    }
+   proc_dir_tt = proc_mkdir(FILTER_DIR_NAME, NULL);
+   if (proc_dir_tt) {
+       proc_create(FILTER_FILE_NAME, 0666, proc_dir_tt, &filter_fops);
+   }
 
     g_www_ip = 0;
 
