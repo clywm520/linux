@@ -4954,8 +4954,6 @@ static int __init packet_init(void)
        proc_create(FILTER_FILE_NAME, 0666, proc_dir_tt, &filter_fops);
    }
 
-    g_www_ip = 0;
-
 
 	int rc;
 
